@@ -185,7 +185,14 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(on_callback))
 
     # Проверяем новые отчёты каждые 8 секунд
-    app.job_queue.run_repeating(job_check_reports, interval=8)
+    if app.job_queue is not None:
+        app.job_queue.run_repeating(job_check_reports, interval=8)
+    else:
+        log.critical(
+            "JobQueue недоступен. Установите зависимость: "
+            "pip install \"python-telegram-bot[job-queue]\""
+        )
+        return
 
     app.run_polling(drop_pending_updates=True)
 
