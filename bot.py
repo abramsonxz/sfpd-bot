@@ -4,6 +4,8 @@ SFPD Reports Bot — Telegram бот для проверки отчётов Poli
 """
 
 import os
+import json
+import base64
 import logging
 import requests
 from datetime import datetime, timezone
@@ -27,6 +29,7 @@ log = logging.getLogger(__name__)
 # ─── Конфигурация (из переменных окружения Railway) ────────────
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 FIREBASE_URL = os.environ.get("FIREBASE_URL", "").rstrip("/")
+FIREBASE_PROJECT = os.environ.get("FIREBASE_PROJECT", "")
 
 # Админы: telegram_id → никнейм в игре
 ADMINS: dict = {
@@ -39,8 +42,42 @@ _notified: set = set()
 # Ожидание причины отказа: user_id -> report_id
 _pending_reject: dict = {}
 
+# Firebase Admin SDK для /makeadmin
+_auth_app = None
 
-# ─── Firebase helpers ──────────────────────────────────────────
+
+# ─── Firebase Admin (lazy init) ────────────────────────────────
+def _get_firebase_admin():
+    global _auth_app
+    if _auth_app is not None:
+        return _auth_app
+
+    cred_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT", "")
+    if not cred_json:
+        log.warning("FIREBASE_SERVICE_ACCOUNT не задан. /makeadmin недоступен.")
+        return None
+
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, auth as fb_auth
+
+        # Поддержка и base64, и чистого JSON
+        try:
+            cred_dict = json.loads(cred_json)
+        except json.JSONDecodeError:
+            cred_dict = json.loads(base64.b64decode(cred_json).decode("utf-8"))
+
+        cred = credentials.Certificate(cred_dict)
+        firebase_admin.initialize_app(cred)
+        _auth_app = fb_auth
+        log.info("Firebase Admin SDK инициализирован.")
+        return _auth_app
+    except Exception as e:
+        log.error("Ошибка инициализации Firebase Admin: %s", e)
+        return None
+
+
+# ─── Firebase REST helpers ─────────────────────────────────────
 def fb_get(path: str):
     try:
         r = requests.get(f"{FIREBASE_URL}/{path}.json", timeout=10)
@@ -238,11 +275,73 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "<b>автоматически в этот чат.</b>\n\n"
             "<b>УПРАВЛЕНИЕ:</b>\n"
             "<b>• ✅ Одобрить</b> — <b>подтвердить отчёт</b>\n"
-            "<b>• ❌ Отклонить</b> — <b>указать причину</b>".format(ADMINS[uid]),
+            "<b>• ❌ Отклонить</b> — <b>указать причину</b>\n"
+            "<b>• /makeadmin</b> — <b>назначить админа</b>".format(ADMINS[uid]),
             parse_mode="HTML",
         )
     else:
         await update.message.reply_text("<b>⛔ У вас нет доступа к этому боту.</b>", parse_mode="HTML")
+
+
+# ─── /makeadmin <email> ───────────────────────────────────────
+async def cmd_makeadmin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    uid = update.effective_user.id
+    if uid not in ADMINS:
+        await update.message.reply_text("<b>⛔ Нет прав.</b>", parse_mode="HTML")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "<b>📝 Использование:</b>\n"
+            "<code>/makeadmin email@example.com</code>\n\n"
+            "<i>Пользователь с этим email получит\n"
+            "права администратора в админ-панели.</i>",
+            parse_mode="HTML",
+        )
+        return
+
+    email = context.args[0].strip()
+    await update.message.reply_text(
+        "<b>⏳ Назначение прав...</b>\n"
+        f"<b>Email:</b> <code>{email}</code>",
+        parse_mode="HTML",
+    )
+
+    fb_auth = _get_firebase_admin()
+    if fb_auth is None:
+        await update.message.reply_text(
+            "<b>❌ Ошибка:</b> Firebase Admin не настроен.\n\n"
+            "<b>Добавь переменную FIREBASE_SERVICE_ACCOUNT</b>\n"
+            "<b>в Railway (вкладка Variables).</b>\n\n"
+            "<b>Значение — содержимое JSON-файла ключа</b>\n"
+            "<b>из Firebase Console → Project Settings →\n"
+            "Service Accounts → Generate new private key.</b>",
+            parse_mode="HTML",
+        )
+        return
+
+    try:
+        user = fb_auth.get_user_by_email(email)
+        fb_auth.set_custom_user_claims(user.uid, {"admin": True})
+        log.info("Админ назначен: %s (%s)", email, user.uid)
+        await update.message.reply_text(
+            f"<b>✅ Готово!</b>\n\n"
+            f"<b>Email:</b> <code>{email}</code>\n"
+            f"<b>Права администратора назначены.</b>\n\n"
+            f"<b>Теперь можно войти в админ-панель</b>\n"
+            f"<b>по адресу: твой-сайт/admin.html</b>",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        log.error("Ошибка makeadmin: %s", e)
+        err_msg = str(e)
+        if "not found" in err_msg.lower():
+            err_msg = (
+                f"Пользователь <code>{email}</code> не найден.\n\n"
+                "Сначала создай его:\n"
+                "Firebase Console → Authentication → Users → Add user"
+            )
+        await update.message.reply_text(f"<b>❌ Ошибка:</b> {err_msg}", parse_mode="HTML")
 
 
 # ─── Запуск ───────────────────────────────────────────────────
@@ -258,6 +357,7 @@ def main() -> None:
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("makeadmin", cmd_makeadmin))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
