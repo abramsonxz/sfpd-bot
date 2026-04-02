@@ -70,21 +70,21 @@ def format_report(rid: str, r: dict) -> str:
     em = _exam_emoji(r.get("examResult", ""))
     evidence = (r.get("evidence") or "").strip()
     text = (
-        f"📋 <b>Отчёт</b> <code>#{rid[:8]}</code>\n\n"
-        f"👤 Экзаменатор: <b>{r.get('examinerNick', '—')}</b>\n"
-        f"🎓 Кадет: <b>{r.get('cadetNick', '—')}</b>\n"
-        f"📝 Экзамен: {r.get('examType', '—')}\n"
-        f"{em} Итог: {r.get('examResult', '—')}\n"
-        f"📅 Дата: {r.get('examDate', '—')}\n"
+        f"<b>📋 ОТЧЁТ</b> <code>#{rid[:8]}</code>\n\n"
+        f"<b>👤 Экзаменатор:</b> <b>{r.get('examinerNick', '—')}</b>\n"
+        f"<b>🎓 Кадет:</b> <b>{r.get('cadetNick', '—')}</b>\n"
+        f"<b>📝 Экзамен:</b> <b>{r.get('examType', '—')}</b>\n"
+        f"<b>{em} Итог:</b> <b>{r.get('examResult', '—')}</b>\n"
+        f"<b>📅 Дата:</b> <b>{r.get('examDate', '—')}</b>\n"
     )
     if evidence:
-        text += f'📎 <a href="{evidence}">Доказательства</a>\n'
+        text += f'<b>📎 Доказательства:</b> <a href="{evidence}">📎 Открыть</a>\n'
     reviewed = r.get("reviewedBy")
     if reviewed:
-        text += f"\n🔧 Проверил: <b>{reviewed}</b>"
+        text += f"\n<b>🔧 Проверил:</b> <b>{reviewed}</b>"
     reason = r.get("rejectReason")
     if reason:
-        text += f"\n⚠️ Причина: <i>{reason}</i>"
+        text += f"\n<b>⚠️ Причина:</b> <b>{reason}</b>"
     return text
 
 
@@ -105,7 +105,7 @@ async def job_check_reports(context: ContextTypes.DEFAULT_TYPE) -> None:
         text = format_report(rid, r)
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✅ Проверить", callback_data=f"approve_{rid}"),
+                InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_{rid}"),
                 InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{rid}"),
             ]
         ])
@@ -142,9 +142,14 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         try:
             await query.message.edit_text(
                 "❌ <b>ОТКЛОНЕНИЕ ОТЧЁТА</b>\n\n"
-                "📋 Отчёт <code>#{}\"\n\n"
-                "📝 Напишите <b>причину отклонения</b> следующим сообщением:\n\n"
-                "<i>Например: Неполные доказательства, скриншот не читается</i>".format(rid[:8]),
+                "📋 <b>Отчёт</b> <code>#{}</code>\n\n"
+                "📝 <b>Напишите причину отклонения</b> следующим сообщением.\n"
+                "<b>Выберите из предложенных или напишите свою:</b>\n\n"
+                "<b>1.</b> <b>Недостоверные данные</b>\n"
+                "<b>2.</b> <b>Неполные доказательства, скриншот не открывается</b>\n"
+                "<b>3.</b> <b>Экзамен не проводился</b>\n"
+                "<b>4.</b> <b>Нарушение регламента проведения</b>\n"
+                "<b>5.</b> <b>Другое (напишите свой вариант)</b>".format(rid[:8]),
                 parse_mode="HTML",
             )
         except Exception as e:
@@ -169,7 +174,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     try:
         await query.message.edit_text(
-            "✅ <b>ПРОВЕРЕНО</b>\n\n{}".format(text),
+            "✅ <b>ОДОБРЕНО</b>\n\n{}".format(text),
             parse_mode="HTML",
             disable_web_page_preview=True,
         )
@@ -229,15 +234,19 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
     if uid in ADMINS:
         await update.message.reply_text(
-            "👋 Привет, <b>{}</b>!\n\n"
-            "Я бот отчётов SFPD Police Academy.\n"
-            "Новые отчёты будут приходить автоматически.\n\n"
-            "• ✅ — проверить отчёт\n"
-            "• ❌ — отклонить (потребуется указать причину)".format(ADMINS[uid]),
+            "<b>🛡 SFPD POLICE ACADEMY</b>\n"
+            "<b>━━━━━━━━━━━━━━━━━━━</b>\n\n"
+            "<b>👋 Привет, {}!</b>\n\n"
+            "<b>Я бот отчётов Police Academy.</b>\n"
+            "<b>Новые отчёты будут приходить</b>\n"
+            "<b>автоматически в этот чат.</b>\n\n"
+            "<b>УПРАВЛЕНИЕ:</b>\n"
+            "<b>• ✅ Одобрить</b> — <b>подтвердить отчёт</b>\n"
+            "<b>• ❌ Отклонить</b> — <b>указать причину</b>".format(ADMINS[uid]),
             parse_mode="HTML",
         )
     else:
-        await update.message.reply_text("⛔ У вас нет доступа к этому боту.")
+        await update.message.reply_text("<b>⛔ У вас нет доступа к этому боту.</b>", parse_mode="HTML")
 
 
 # ─── Запуск ───────────────────────────────────────────────────
