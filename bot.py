@@ -36,6 +36,9 @@ ADMINS: dict = {
 # Множество уже отправленных в Telegram отчётов
 _notified: set = set()
 
+# Ожидание причины отказа: user_id -> report_id
+_pending_reject: dict = {}
+
 
 # ─── Firebase helpers ──────────────────────────────────────────
 def fb_get(path: str):
@@ -134,8 +137,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     admin_name = ADMINS[uid]
 
     if action == "reject":
-        # Сохраняем report_id в bot_data по ключу user_id
-        context.bot_data[str(uid)] = rid
+        _pending_reject[uid] = rid
         log.info("Ожидание причины от admin %s для отчёта %s", uid, rid)
         try:
             await query.message.edit_text(
@@ -183,13 +185,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     # Проверяем, ожидаем ли мы причину от этого админа
-    uid_key = str(uid)
-    rid = context.bot_data.get(uid_key)
+    rid = _pending_reject.pop(uid, None)
     if not rid:
         return
-
-    # Удаляем из ожидания
-    del context.bot_data[uid_key]
 
     reason = update.message.text.strip()
     admin_name = ADMINS[uid]
