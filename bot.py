@@ -51,21 +51,37 @@ def _get_firebase_admin():
     global _auth_app
     if _auth_app is not None:
         return _auth_app
+    if _auth_app is False:
+        return None  # уже пробовали, не вышло
 
     cred_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT", "")
     if not cred_json:
         log.warning("FIREBASE_SERVICE_ACCOUNT не задан. /makeadmin недоступен.")
+        _auth_app = False
         return None
 
     try:
         import firebase_admin
         from firebase_admin import credentials, auth as fb_auth
 
-        # Поддержка и base64, и чистого JSON
-        try:
-            cred_dict = json.loads(cred_json)
-        except json.JSONDecodeError:
-            cred_dict = json.loads(base64.b64decode(cred_json).decode("utf-8"))
+        # Поддержка: чистый JSON, JSON с лишними пробелами/переносами, base64
+        cred_dict = None
+        for attempt in [cred_json.strip(), " ".join(cred_json.split()), cred_json.replace("\n", " ")]:
+            try:
+                cred_dict = json.loads(attempt)
+                break
+            except (json.JSONDecodeError, ValueError):
+                continue
+        if cred_dict is None:
+            try:
+                cred_dict = json.loads(base64.b64decode(cred_json.strip()).decode("utf-8"))
+            except Exception:
+                pass
+
+        if not isinstance(cred_dict, dict):
+            log.error("FIREBASE_SERVICE_ACCOUNT: не удалось распарсить JSON. Длина: %d", len(cred_json))
+            _auth_app = False
+            return None
 
         cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
@@ -74,6 +90,7 @@ def _get_firebase_admin():
         return _auth_app
     except Exception as e:
         log.error("Ошибка инициализации Firebase Admin: %s", e)
+        _auth_app = False
         return None
 
 
